@@ -898,12 +898,12 @@ define([
         }
 
         var context = frameState.context;
+        var that = this;
 
         if (this._state === LoadState.NEEDS_LOAD) {
             this._state = LoadState.LOADING;
             this._instancingSupported = context.instancedArrays;
             createModel(this, context);
-            var that = this;
             this._model.readyPromise.otherwise(function(error) {
                 that._state = LoadState.FAILED;
                 that._readyPromise.reject(error);
@@ -916,7 +916,6 @@ define([
 
         if (model.ready && (this._state === LoadState.LOADING)) {
             this._state = LoadState.LOADED;
-            this._ready = true;
 
             // Expand bounding volume to fit the radius of the loaded model including the model's offset from the center
             var modelRadius = model.boundingSphere.radius + Cartesian3.magnitude(model.boundingSphere.center);
@@ -932,7 +931,11 @@ define([
                 updateCommandsNonInstanced(this);
             }
 
-            this._readyPromise.resolve(this);
+            frameState.afterRender.push(function() {
+                that._ready = true;
+                that._readyPromise.resolve(that);
+            });
+
             return;
         }
 

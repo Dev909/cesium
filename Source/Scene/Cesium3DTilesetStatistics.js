@@ -15,6 +15,7 @@ define([
         // Loading stats
         this.numberOfCommands = 0;
         this.numberOfAttemptedRequests = 0;
+        this.numberOfCancelledRequests = 0;
         this.numberOfPendingRequests = 0;
         this.numberProcessing = 0;
         this.numberContentReady = 0; // Number of tiles with content loaded, does not include empty tiles
@@ -41,6 +42,7 @@ define([
         this.visited = 0;
         this.numberOfCommands = 0;
         this.numberOfAttemptedRequests = 0;
+        this.numberOfCancelledRequests = 0;
         this.numberOfFeaturesSelected = 0;
         this.numberOfPointsSelected = 0;
         this.numberOfTrianglesSelected = 0;
@@ -96,6 +98,7 @@ define([
         result.numberOfCommands = statistics.numberOfCommands;
         result.selected = statistics.selected;
         result.numberOfAttemptedRequests = statistics.numberOfAttemptedRequests;
+        result.numberOfCancelledRequests = statistics.numberOfCancelledRequests;
         result.numberOfPendingRequests = statistics.numberOfPendingRequests;
         result.numberProcessing = statistics.numberProcessing;
         result.numberContentReady = statistics.numberContentReady;

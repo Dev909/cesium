@@ -24,7 +24,6 @@ define([
         '../Core/Rectangle',
         '../Core/RectangleOutlineGeometry',
         '../Core/Request',
-        '../Core/RequestScheduler',
         '../Core/RequestType',
         '../Core/SphereOutlineGeometry',
         '../ThirdParty/Uri',
@@ -67,7 +66,6 @@ define([
         Rectangle,
         RectangleOutlineGeometry,
         Request,
-        RequestScheduler,
         RequestType,
         SphereOutlineGeometry,
         Uri,
@@ -192,13 +190,11 @@ define([
         var hasEmptyContent;
         var contentState;
         var contentUrl;
-        var requestServer;
 
         if (defined(contentHeader)) {
             hasEmptyContent = false;
             contentState = Cesium3DTileContentState.UNLOADED;
             contentUrl = joinUrls(baseUrl, contentHeader.url);
-            requestServer = RequestScheduler.getRequestServer(contentUrl);
         } else {
             content = new Empty3DTileContent(tileset, this);
             hasEmptyContent = true;
@@ -211,8 +207,6 @@ define([
         this._contentReadyToProcessPromise = undefined;
         this._contentReadyPromise = undefined;
         this._expiredContent = undefined;
-
-        this._requestServer = requestServer;
 
         /**
          * When <code>true</code>, the tile has no content.
@@ -320,7 +314,7 @@ define([
         this._screenSpaceError = 0;
         this._screenSpaceErrorComputedFrame = -1;
         this._finalResolution = true;
-        this._requestHeap = undefined;
+        this._request = undefined;
         this._depth = 0;
         this._centerZDepth = 0;
         this._stackLength = 0;
@@ -402,16 +396,6 @@ define([
         },
 
         /**
-         * @readonly
-         * @private
-         */
-        requestServer : {
-            get : function() {
-                return this._requestServer;
-            }
-        },
-
-        /**
          * Determines if the tile has available content to render.  <code>true</code> if the tile's
          * content is ready or if it has expired content that renders while new content loads; otherwise,
          * <code>false</code>.
@@ -439,6 +423,21 @@ define([
         contentReady : {
             get : function() {
                 return this._contentState === Cesium3DTileContentState.READY;
+            }
+        },
+
+        /**
+         * Determines if the tile is processing. <code>true</code> if the tile
+         * is processing; otherwise, <code>false</code>.
+         *
+         * @memberof Cesium3DTile.prototype
+         *
+         * @type {Boolean}
+         * @readonly
+         */
+        contentProcessing : {
+            get : function() {
+                return this._contentState === Cesium3DTileContentState.PROCESSING;
             }
         },
 
@@ -573,10 +572,6 @@ define([
             return false;
         }
 
-        if (!this._requestServer.hasAvailableRequests()) {
-            return false;
-        }
-
         var url = this._contentUrl;
         if (defined(this.expireDate)) {
             // Append a query parameter of the tile expiration date to prevent caching
@@ -584,14 +579,14 @@ define([
             url = joinUrls(url, timestampQuery, false);
         }
 
-        var distance = this._distanceToCamera;
-        var promise = RequestScheduler.schedule(new Request({
-            url : url,
-            server : this._requestServer,
-            requestFunction : loadArrayBuffer,
+        this._request = new Request({
+            distance : this._distanceToCamera,
+            screenSpaceError : this._screenSpaceError,
             type : RequestType.TILES3D,
-            distance : distance
-        }));
+            throttle : true
+        });
+
+        var promise = loadArrayBuffer(url, undefined, this._request);
 
         if (!defined(promise)) {
             return false;

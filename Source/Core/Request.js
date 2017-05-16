@@ -1,8 +1,14 @@
 /*global define*/
 define([
-        './defaultValue'
+        './defaultValue',
+        './defined',
+        './defineProperties',
+        './RequestType'
     ], function(
-        defaultValue) {
+        defaultValue,
+        defined,
+        defineProperties,
+        RequestType) {
     'use strict';
 
     /**
@@ -14,55 +20,60 @@ define([
      */
     function Request(options) {
         options = defaultValue(options, defaultValue.EMPTY_OBJECT);
-
         /**
          * The URL to request.
          */
         this.url = options.url;
 
         /**
-         * Extra parameters to send with the request. For example, HTTP headers or jsonp parameters.
-         */
-        this.parameters = options.parameters;
-
-        /**
-         * The actual function that makes the request.
+         * The actual function that makes the request. Returns a promise for the requested data.
          */
         this.requestFunction = options.requestFunction;
 
         /**
          * Type of request. Used for more fine-grained priority sorting.
          */
-        this.type = options.type;
+        this.type = defaultValue(options.type, RequestType.OTHER);
 
         /**
-         * Specifies that the request should be deferred until an open slot is available.
-         * A deferred request will always return a promise, which is suitable for data
-         * sources and utility functions.
+         * If false, the request will be sent immediately. If true, the request will be throttled and sent based
+         * on priority.
          */
-        this.defer = defaultValue(options.defer, false);
+        this.throttle = defaultValue(options.throttle, false);
 
         /**
          * The distance from the camera, used to prioritize requests.
          */
         this.distance = defaultValue(options.distance, 0.0);
 
-        // Helper members for RequestScheduler
-
         /**
-         * A promise for when a deferred request can start.
-         *
-         * @private
+         * The screen-space-error, used to prioritize requests.
          */
-        this.startPromise = undefined;
+        this.screenSpaceError = defaultValue(options.screenSpaceError, 0.0);
 
-        /**
-         * Reference to a {@link RequestScheduler~RequestServer}.
-         *
-         * @private
-         */
-        this.server = options.server;
+        this.cancel = false;
+        this.done = false;
+        this.xhr = undefined;
+        this._promise = undefined;
     }
+
+    defineProperties(Request.prototype, {
+        /**
+         * Promise that resolves with the requested data.
+         *
+         * @memberof Request.prototype
+         *
+         * @type {Promise}
+         * @readonly
+         */
+        promise : {
+            get : function() {
+                return this._promise.promise;
+            }
+        }
+    });
+
+    console.log('XHR abort is supported: ' + xhrAbortSupported);
 
     return Request;
 });

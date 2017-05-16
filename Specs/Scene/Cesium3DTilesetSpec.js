@@ -147,11 +147,6 @@ defineSuite([
 
     afterEach(function() {
         scene.primitives.removeAll();
-
-        // Wait for any pending requests to complete before ending each test
-        return pollToPromise(function() {
-            return RequestScheduler.getNumberOfAvailableRequests() === RequestScheduler.maximumRequests;
-        });
     });
 
     function setZoom(distance) {
@@ -1479,28 +1474,6 @@ defineSuite([
         });
     });
 
-    it('does not request tiles when the request scheduler is full', function() {
-        viewRootOnly(); // Root tiles are loaded initially
-
-        var promises = [
-            // skip LODs loads a base level of content first
-            Cesium3DTilesTester.loadTileset(scene, tilesetUrl, {skipLODs: false}),
-            Cesium3DTilesTester.loadTileset(scene, tilesetUrl, {skipLODs: false})
-        ];
-
-        return when.all(promises, function(tilesets) {
-            // Root tiles are ready, now zoom in to request child tiles
-            viewAllTiles();
-            scene.renderForSpecs();
-
-            // Maximum of 6 requests allowed. Expect the first tileset to use four,
-            // and the second tileset to use the remaining two
-            expect(tilesets[0]._statistics.numberOfPendingRequests).toEqual(4);
-            expect(tilesets[1]._statistics.numberOfPendingRequests).toEqual(2);
-            expect(RequestScheduler.hasAvailableRequestsByServer(tilesets[0]._url)).toEqual(false);
-        });
-    });
-
     it('load progress events are raised', function() {
         // [numberOfPendingRequests, numberProcessing]
         var results = [
@@ -1604,12 +1577,11 @@ defineSuite([
             expect(stats.numberOfPendingRequests).toEqual(1);
             scene.primitives.remove(tileset);
 
-            return root.contentReadyPromise.then(function(root) {
+            return root.contentReadyPromise.then(function() {
                 fail('should not resolve');
-            }).otherwise(function(error) {
+            }).otherwise(function() {
                 // Expect the root to not have added any children from the external tileset.json
                 expect(root.children.length).toEqual(0);
-                expect(RequestScheduler.getNumberOfAvailableRequests()).toEqual(RequestScheduler.maximumRequests);
             });
         });
     });
@@ -1624,11 +1596,10 @@ defineSuite([
             scene.renderForSpecs(); // Request root
             scene.primitives.remove(tileset);
 
-            return root.contentReadyPromise.then(function(content) {
+            return root.contentReadyPromise.then(function() {
                 fail('should not resolve');
-            }).otherwise(function(error) {
+            }).otherwise(function() {
                 expect(root._contentState).toBe(Cesium3DTileContentState.FAILED);
-                expect(RequestScheduler.getNumberOfAvailableRequests()).toEqual(RequestScheduler.maximumRequests);
             });
         });
     });

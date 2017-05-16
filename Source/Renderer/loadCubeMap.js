@@ -3,14 +3,12 @@ define([
         '../Core/defined',
         '../Core/DeveloperError',
         '../Core/loadImage',
-        '../Core/RequestScheduler',
         '../ThirdParty/when',
         './CubeMap'
     ], function(
         defined,
         DeveloperError,
         loadImage,
-        RequestScheduler,
         when,
         CubeMap) {
     'use strict';
@@ -26,6 +24,7 @@ define([
      * @param {Boolean} [allowCrossOrigin=true] Whether to request the image using Cross-Origin
      *        Resource Sharing (CORS).  CORS is only actually used if the image URL is actually cross-origin.
      *        Data URIs are never requested using CORS.
+     * @param {Request} [request] The request object.
      * @returns {Promise.<CubeMap>} a promise that will resolve to the requested {@link CubeMap} when loaded.
      *
      * @exception {DeveloperError} context is required.
@@ -51,7 +50,7 @@ define([
      *
      * @private
      */
-    function loadCubeMap(context, urls, allowCrossOrigin) {
+    function loadCubeMap(context, urls, allowCrossOrigin, request) {
         //>>includeStart('debug', pragmas.debug);
         if (!defined(context)) {
             throw new DeveloperError('context is required.');
@@ -74,12 +73,12 @@ define([
         // ideally, we would do it in the primitive's update function.
 
         var facePromises = [
-            RequestScheduler.request(urls.positiveX, loadImage, allowCrossOrigin),
-            RequestScheduler.request(urls.negativeX, loadImage, allowCrossOrigin),
-            RequestScheduler.request(urls.positiveY, loadImage, allowCrossOrigin),
-            RequestScheduler.request(urls.negativeY, loadImage, allowCrossOrigin),
-            RequestScheduler.request(urls.positiveZ, loadImage, allowCrossOrigin),
-            RequestScheduler.request(urls.negativeZ, loadImage, allowCrossOrigin)
+            loadImage(urls.positiveX, allowCrossOrigin, request),
+            loadImage(urls.negativeX, allowCrossOrigin, request),
+            loadImage(urls.positiveY, allowCrossOrigin, request),
+            loadImage(urls.negativeY, allowCrossOrigin, request),
+            loadImage(urls.positiveZ, allowCrossOrigin, request),
+            loadImage(urls.negativeZ, allowCrossOrigin, request)
         ];
 
         return when.all(facePromises, function(images) {

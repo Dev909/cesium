@@ -24,9 +24,6 @@ define([
         '../Core/ManagedArray',
         '../Core/Math',
         '../Core/Matrix4',
-        '../Core/Request',
-        '../Core/RequestScheduler',
-        '../Core/RequestType',
         '../Renderer/ClearCommand',
         '../Renderer/Pass',
         '../ThirdParty/Uri',
@@ -38,6 +35,7 @@ define([
         './Cesium3DTileOptimizations',
         './Cesium3DTileOptimizationHint',
         './Cesium3DTileRefine',
+        './Cesium3DTilesetProcessor',
         './Cesium3DTilesetStatistics',
         './Cesium3DTilesetTraversal',
         './Cesium3DTileStyleEngine',
@@ -75,9 +73,6 @@ define([
         ManagedArray,
         CesiumMath,
         Matrix4,
-        Request,
-        RequestScheduler,
-        RequestType,
         ClearCommand,
         Pass,
         Uri,
@@ -89,6 +84,7 @@ define([
         Cesium3DTileOptimizations,
         Cesium3DTileOptimizationHint,
         Cesium3DTileRefine,
+        Cesium3DTilesetProcessor,
         Cesium3DTilesetStatistics,
         Cesium3DTilesetTraversal,
         Cesium3DTileStyleEngine,
@@ -178,9 +174,10 @@ define([
         this._properties = undefined; // Metadata for per-model/point/etc properties
         this._geometricError = undefined; // Geometric error when the tree is not rendered at all
         this._gltfUpAxis = undefined;
-        this._processingQueue = [];
+        this._processingHeap = new Heap(sortForProcessing);
         this._selectedTiles = [];
         this._desiredTiles = new ManagedArray();
+        this._requestingTiles = new ManagedArray();
         this._selectedTilesToStyle = [];
         this._loadTimestamp = undefined;
         this._timeSinceLoad = 0.0;
@@ -195,7 +192,6 @@ define([
 
         this._cullWithChildrenBounds = defaultValue(options.cullWithChildrenBounds, true);
 
-        this._requestHeaps = {};
         this._hasMixedContent = false;
 
         this._baseTraversal = new Cesium3DTilesetTraversal.BaseTraversal();
@@ -573,8 +569,7 @@ define([
 
         var that = this;
 
-        // We don't know the distance of the tileset until tileset.json is loaded, so use the default distance for now
-        RequestScheduler.request(tilesetUrl, loadJson, undefined, RequestType.TILES3D).then(function(tilesetJson) {
+        loadJson(tilesetUrl).then(function(tilesetJson) {
             if (that.isDestroyed()) {
                 return when.reject('tileset is destroyed');
             }
@@ -1040,23 +1035,6 @@ define([
             if (this._cullWithChildrenBounds) {
                 Cesium3DTileOptimizations.checkChildrenWithinParent(tile3D);
             }
-
-            // Create a load heap, one for each unique server. We can only make limited requests to a given
-            // server so it is unnecessary to keep a queue of all tiles needed to be loaded.
-            // Instead of creating a list of all tiles to load and then sorting it entirely to find the best ones,
-            // we keep just a heap so we have the best `maximumRequestsPerServer` to load. The order of these does
-            // not matter much as we will try to load them all.
-            // The heap approach is a O(n log k) to find the best tiles for loading.
-            var requestServer = tile3D.requestServer;
-            if (defined(requestServer)) {
-                if (!defined(this._requestHeaps[requestServer])) {
-                    var heap = new Heap(sortForLoad);
-                    this._requestHeaps[requestServer] = heap;
-                    heap.maximumSize = RequestScheduler.maximumRequestsPerServer;
-                    heap.reserve(heap.maximumSize);
-                }
-                tile3D._requestHeap = this._requestHeaps[requestServer];
-            }
         }
 
         return rootTile;
@@ -1160,99 +1138,17 @@ define([
         return screenSpaceErrorDifference === 0 ? distanceDifference : screenSpaceErrorDifference;
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-
-    function requestContent(tileset, tile, outOfCore) {
-        if (!outOfCore) {
-            return;
+    function sortForProcessing(a, b) {
+        var aVisible = isVisible(a.visibilityPlaneMask);
+        var bVisible = isVisible(b.visibilityPlaneMask);
+        if (aVisible !== bVisible) {
+            return aVisible ? -1 : 1;
         }
-
-        if (tile.hasEmptyContent) {
-            return;
-        }
-
-        var statistics = tileset._statistics;
-        var expired = tile.contentExpired;
-        var requested = tile.requestContent();
-
-        if (!requested) {
-            ++statistics.numberOfAttemptedRequests;
-            return;
-        }
-
-        if (expired) {
-            if (tile.hasRenderableContent) {
-                statistics.decrementLoadCounts(tile.content);
-                --tileset._statistics.numberContentReady;
-            } else if (tile.hasTilesetContent) {
-                destroySubtree(tileset, tile);
-            }
-        }
-
-        ++statistics.numberOfPendingRequests;
-
-        var removeFunction = removeFromProcessingQueue(tileset, tile);
-        tile.contentReadyToProcessPromise.then(addToProcessingQueue(tileset, tile));
-        tile.contentReadyPromise.then(removeFunction).otherwise(removeFunction);
+        return sortForLoad(a, b);
     }
 
-    function requestTiles(tileset, requestHeaps, outOfCore) {
-        for (var name in requestHeaps) {
-            if (requestHeaps.hasOwnProperty(name)) {
-                var heap = requestHeaps[name];
-                var tile;
-                while (defined(tile = heap.pop())) {
-                    requestContent(tileset, tile, outOfCore);
-                }
-            }
-        }
-    }
-
-    function addToProcessingQueue(tileset, tile) {
-        return function() {
-            tileset._processingQueue.push(tile);
-
-            --tileset._statistics.numberOfPendingRequests;
-            ++tileset._statistics.numberProcessing;
-        };
-    }
-
-    function removeFromProcessingQueue(tileset, tile) {
-        return function() {
-            var index = tileset._processingQueue.indexOf(tile);
-            if (index >= 0) {
-                // Remove from processing queue
-                tileset._processingQueue.splice(index, 1);
-                --tileset._statistics.numberProcessing;
-
-                if (tile.hasRenderableContent) {
-                    // RESEARCH_IDEA: ability to unload tiles (without content) for an
-                    // external tileset when all the tiles are unloaded.
-                    tileset._statistics.incrementLoadCounts(tile.content);
-                    ++tileset._statistics.numberContentReady;
-
-                    // Add to the tile cache. Previously expired tiles are already in the cache.
-                    if (!defined(tile.replacementNode)) {
-                        tile.replacementNode = tileset._replacementList.add(tile);
-                    }
-                }
-            } else {
-                // Not in processing queue
-                // For example, when a url request fails and the ready promise is rejected
-                --tileset._statistics.numberOfPendingRequests;
-            }
-        };
-    }
-
-    function processTiles(tileset, frameState) {
-        var tiles = tileset._processingQueue;
-        var length = tiles.length;
-
-        // Process tiles in the PROCESSING state so they will eventually move to the READY state.
-        // Traverse backwards in case a tile is removed as a result of calling process()
-        for (var i = length - 1; i >= 0; --i) {
-            tiles[i].process(tileset, frameState);
-        }
+    function isVisible(visibilityPlaneMask) {
+        return visibilityPlaneMask !== CullingVolume.MASK_OUTSIDE;
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -1433,9 +1329,12 @@ define([
         }
     }
 
-    function destroySubtree(tileset, tile) {
+    /**
+     * @private
+     */
+    Cesium3DTileset.prototype.destroySubtree = function(tile) {
         var root = tile;
-        var statistics = tileset._statistics;
+        var statistics = this._statistics;
         var stack = scratchStack;
         stack.push(tile);
         while (stack.length > 0) {
@@ -1446,13 +1345,13 @@ define([
                 stack.push(children[i]);
             }
             if (tile !== root) {
-                unloadTileFromCache(tileset, tile);
+                unloadTileFromCache(this, tile);
                 tile.destroy();
                 --statistics.numberTotal;
             }
         }
         root.children = [];
-    }
+    };
 
     function unloadTileFromCache(tileset, tile) {
         var node = tile.replacementNode;
@@ -1567,7 +1466,7 @@ define([
         statistics.clear();
 
         if (outOfCore) {
-            processTiles(this, frameState);
+            Cesium3DTilesetProcessor.processTiles(this, frameState);
         }
 
         if (this.dynamicScreenSpaceError) {
@@ -1575,7 +1474,7 @@ define([
         }
 
         Cesium3DTilesetTraversal.selectTiles(this, frameState, outOfCore);
-        requestTiles(this, this._requestHeaps, outOfCore);
+        Cesium3DTilesetProcessor.updateRequestingTiles(this, frameState);
         updateTiles(this, frameState);
 
         if (outOfCore) {

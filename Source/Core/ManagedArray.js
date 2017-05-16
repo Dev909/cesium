@@ -1,14 +1,14 @@
 /*global define*/
 define([
+        './Check',
         './defaultValue',
         './defined',
-        './defineProperties',
-        './Check'
+        './defineProperties'
     ], function(
+        Check,
         defaultValue,
         defined,
-        defineProperties,
-        Check) {
+        defineProperties) {
     'use strict';
 
     /**
@@ -39,9 +39,7 @@ define([
             },
             set : function(length) {
                 this._length = length;
-                if (length > this._array.length) {
-                    this._array.length = length;
-                }
+                this.reserve(length);
             }
         },
 
@@ -92,6 +90,10 @@ define([
      * Push an element into the array.
      */
     ManagedArray.prototype.push = function(element) {
+        //>>includeStart('debug', pragmas.debug);
+        Check.defined('element', element);
+        //>>includeEnd('debug');
+
         var index = this.length++;
         this._array[index] = element;
     };
@@ -106,7 +108,7 @@ define([
     };
 
     /**
-     * Resize the internal array if length > _array.length.
+     * Reserves space in the internal array.
      *
      * @param {Number} length The length.
      */

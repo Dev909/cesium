@@ -1,19 +1,25 @@
 /*global define*/
 define([
         '../ThirdParty/when',
+        './Check',
         './defaultValue',
         './defined',
         './DeveloperError',
         './isCrossOriginUrl',
         './isDataUri',
+        './Request',
+        './RequestScheduler',
         './TrustedServers'
     ], function(
         when,
+        Check,
         defaultValue,
         defined,
         DeveloperError,
         isCrossOriginUrl,
         isDataUri,
+        Request,
+        RequestScheduler,
         TrustedServers) {
     'use strict';
 
@@ -27,6 +33,7 @@ define([
      * @param {Boolean} [allowCrossOrigin=true] Whether to request the image using Cross-Origin
      *        Resource Sharing (CORS).  CORS is only actually used if the image URL is actually cross-origin.
      *        Data URIs are never requested using CORS.
+     * @param {Request} [request] The request object.
      * @returns {Promise.<Image>} a promise that will resolve to the requested data when loaded.
      *
      *
@@ -46,31 +53,36 @@ define([
      * @see {@link http://www.w3.org/TR/cors/|Cross-Origin Resource Sharing}
      * @see {@link http://wiki.commonjs.org/wiki/Promises/A|CommonJS Promises/A}
      */
-    function loadImage(url, allowCrossOrigin) {
+    function loadImage(url, allowCrossOrigin, request) {
         //>>includeStart('debug', pragmas.debug);
-        if (!defined(url)) {
-            throw new DeveloperError('url is required.');
-        }
+        Check.defined('url', url);
         //>>includeEnd('debug');
 
         allowCrossOrigin = defaultValue(allowCrossOrigin, true);
 
-        return when(url, function(url) {
-            var crossOrigin;
+        // TODO : right now url as a promise isn't realllly used, but sending it just like this won't work if it is
+        request = defined(request) ? request : new Request();
+        request.url = url;
+        request.requestFunction = function() {
+            return when(url, function(url) {
+                var crossOrigin;
 
-            // data URIs can't have allowCrossOrigin set.
-            if (isDataUri(url) || !allowCrossOrigin) {
-                crossOrigin = false;
-            } else {
-                crossOrigin = isCrossOriginUrl(url);
-            }
+                // data URIs can't have allowCrossOrigin set.
+                if (isDataUri(url) || !allowCrossOrigin) {
+                    crossOrigin = false;
+                } else {
+                    crossOrigin = isCrossOriginUrl(url);
+                }
 
-            var deferred = when.defer();
+                var deferred = when.defer();
 
-            loadImage.createImage(url, crossOrigin, deferred);
+                loadImage.createImage(url, crossOrigin, deferred);
 
-            return deferred.promise;
-        });
+                return deferred.promise;
+            });
+        };
+
+        return RequestScheduler.request(request);
     }
 
     // This is broken out into a separate function so that it can be mocked for testing purposes.

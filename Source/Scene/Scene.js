@@ -1631,6 +1631,11 @@ define([
             return;
         }
 
+        if (command instanceof ClearCommand) {
+            command.execute(context, passState);
+            return;
+        }
+
         var shadowsEnabled = scene.frameState.shadowHints.shadowsEnabled;
         var lightShadowsEnabled = shadowsEnabled && (scene.frameState.shadowHints.lightShadowMaps.length > 0);
 
@@ -2593,7 +2598,6 @@ define([
 
         scene._preRender.raiseEvent(scene, time);
         scene._jobScheduler.resetBudgets();
-        RequestScheduler.resetBudgets();
 
         var context = scene.context;
         var us = context.uniformState;
@@ -2660,6 +2664,7 @@ define([
         }
 
         context.endFrame();
+        RequestScheduler.update();
         callAfterRenderFunctions(frameState);
 
         scene._postRender.raiseEvent(scene, time);
